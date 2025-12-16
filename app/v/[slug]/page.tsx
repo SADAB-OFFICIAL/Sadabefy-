@@ -12,56 +12,49 @@ import {
   AlertCircle, 
   PlayCircle, 
   PackageCheck,
-  Tv
+  Star,
+  Clock,
+  ShieldCheck
 } from "lucide-react";
 
 export default function MoviePage() {
   const params = useParams();
   const router = useRouter();
   
-  // --- STATE MANAGEMENT ---
+  // --- STATE ---
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [data, setData] = useState<any>(null);
   
-  // UI View States: 'info' -> 'mode_select' (if series) -> 'quality_select'
+  // Views: 'info' -> 'mode_select' (Series) -> 'quality_select'
   const [view, setView] = useState<"info" | "mode_select" | "quality_select">("info");
-  
-  // Download Mode: 'episode' (Single Links) or 'batch' (Zip Files)
   const [downloadMode, setDownloadMode] = useState<"episode" | "batch">("episode");
 
-  // --- 1. FETCH & SCRAPE DATA ---
+  // --- LOGIC (SAME AS BEFORE) ---
   useEffect(() => {
     const init = async () => {
       try {
         if (!params.slug) return;
-        
-        // Safe Decoding Logic
         const slugStr = Array.isArray(params.slug) ? params.slug[0] : params.slug;
         const cleanSlug = decodeURIComponent(slugStr);
         const decoded = decodeBase64(cleanSlug);
         
-        if (!decoded.includes("|||")) throw new Error("Invalid Link Format");
+        if (!decoded.includes("|||")) throw new Error("Invalid Link");
 
         const [slug, baseUrl] = decoded.split("|||");
         const targetUrl = `${baseUrl}/${slug}/`;
 
-        console.log("Scraping URL:", targetUrl);
-
         const html = await fetchProxy(targetUrl);
-        if (!html) throw new Error("Failed to load content from source");
+        if (!html) throw new Error("Failed to load");
         
         const doc = parseHTML(html);
 
-        // A. Basic Details
         const title = doc.querySelector("h1")?.textContent?.trim() || "Unknown Title";
         const poster = doc.querySelector(".post-thumbnail img")?.getAttribute("src") || "";
         const description = doc.querySelector("h3 + p")?.textContent?.trim() || "No description available.";
         
-        // B. Advanced Link Extraction
         const episodeLinks: any[] = [];
         const batchLinks: any[] = [];
-
         const qualityHeaders = doc.querySelectorAll(".download-links-div h4");
         
         qualityHeaders.forEach((h4) => {
@@ -69,58 +62,34 @@ export default function MoviePage() {
             const linkDiv = h4.nextElementSibling;
             
             if (linkDiv && linkDiv.classList.contains("downloads-btns-div")) {
-                
-                // Parse Tech Specs
                 const resMatch = rawText.match(/(\d{3,4}p)/);
                 const res = resMatch ? resMatch[0] : "HD";
                 const isHEVC = rawText.toLowerCase().includes("hevc");
 
-                // 1. Find Normal Links (Episode Wise / Single Movie)
-                // Logic: <a> tag jisme 'btn-zip' class NAHI hai
                 const normalBtn = linkDiv.querySelector("a.btn:not(.btn-zip)");
                 if (normalBtn) {
-                     // Extract Size (e.g., [180MB/E] or [1.2GB])
                      const sizeMatch = rawText.match(/\[(\d+(\.\d+)?[GM]B)(\/E)?\]/);
                      const size = sizeMatch ? sizeMatch[1] : "N/A";
-
-                     episodeLinks.push({
-                        label: rawText,
-                        res,
-                        size,
-                        url: normalBtn.getAttribute("href"),
-                        isHEVC
-                     });
+                     episodeLinks.push({ label: rawText, res, size, url: normalBtn.getAttribute("href"), isHEVC });
                 }
 
-                // 2. Find Batch/Zip Links
-                // Logic: <a> tag jisme 'btn-zip' class HAI
                 const zipBtn = linkDiv.querySelector("a.btn-zip");
                 if (zipBtn) {
                     const btnText = zipBtn.textContent || "";
                     const sizeMatch = btnText.match(/\[(\d+(\.\d+)?[GM]B)\]/);
                     const size = sizeMatch ? sizeMatch[1] : "Zip";
-
-                    batchLinks.push({
-                        label: rawText.replace("Episode", "Complete Season"),
-                        res,
-                        size,
-                        url: zipBtn.getAttribute("href"),
-                        isHEVC
-                    });
+                    batchLinks.push({ label: rawText.replace("Episode", "Complete Season"), res, size, url: zipBtn.getAttribute("href"), isHEVC });
                 }
             }
         });
 
-        // Detect if content is a Series
-        // Agar batch links mile, ya title me "Season" likha hai to Series hai
         const isSeries = batchLinks.length > 0 || title.includes("Season");
-
         setData({ title, poster, description, episodeLinks, batchLinks, isSeries });
         setLoading(false);
 
       } catch (e: any) {
         console.error(e);
-        setError(e.message || "Connection Error");
+        setError(e.message);
         setLoading(false);
       }
     };
@@ -128,242 +97,232 @@ export default function MoviePage() {
     init();
   }, [params.slug]);
 
-
-  // --- 2. HANDLERS ---
-
-  // Initial "Download" button click
   const onMainDownloadClick = () => {
       if (data?.isSeries) {
-          setView("mode_select"); // Series hai to Mode pucho
+          setView("mode_select");
       } else {
-          setDownloadMode("episode"); // Movie hai to direct quality dikhao
+          setDownloadMode("episode");
           setView("quality_select");
       }
   };
 
-  // Series Mode Select (Episode vs Batch)
   const selectMode = (mode: "episode" | "batch") => {
       setDownloadMode(mode);
       setView("quality_select");
   };
 
-  // Final Action: Proceed to Parsing Pages
   const proceedToLink = (item: any) => {
-    const keyPayload = JSON.stringify({
-        link: item.url,
-        tmdb: "custom"
-    });
+    const keyPayload = JSON.stringify({ link: item.url, tmdb: "custom" });
     const key = encodeBase64(keyPayload);
     const quality = encodeURIComponent(item.label);
     
     if (downloadMode === 'episode' && data.isSeries) {
-        // 🔥 CRITICAL UPDATE:
-        // Agar Series ka Episode mode hai, to /episodes page par bhejo
-        // Kyunki wahan episodes ki list (1, 2, 3...) scrape hogi
         router.push(`/episodes?key=${key}&quality=${quality}`);
     } else {
-        // Agar Movie hai YA Series ka Zip file hai
-        // To seedha Downloading system (VlyxDrive) par bhejo
         router.push(`/vlyxdrive?key=${key}&action=download&quality=${quality}`);
     }
   };
 
-
-  // --- 3. RENDERERS (LOADING / ERROR) ---
+  // --- UI RENDER ---
 
   if (loading) return (
-      <div className="min-h-screen bg-black p-6 flex flex-col items-center pt-24 space-y-6">
-          <div className="w-48 h-72 bg-gray-800 rounded-xl animate-pulse shadow-2xl"></div>
-          <div className="h-8 w-3/4 bg-gray-800 rounded animate-pulse"></div>
-          <div className="h-20 w-full max-w-lg bg-gray-800 rounded animate-pulse"></div>
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+          <div className="relative w-24 h-36 rounded-lg overflow-hidden animate-pulse bg-gray-800">
+              <div className="absolute inset-0 bg-gradient-to-tr from-gray-800 to-gray-700"></div>
+          </div>
       </div>
   );
 
   if (error) return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center text-center p-4">
-          <AlertCircle size={50} className="text-red-500 mb-4" />
-          <h2 className="text-xl font-bold text-white">Oops! Connection Failed</h2>
-          <p className="text-gray-400 mt-2 max-w-md">{error}</p>
-          <button onClick={() => window.location.reload()} className="mt-6 px-6 py-3 bg-white/10 hover:bg-white/20 rounded-full text-white font-semibold transition">
-            Try Again
-          </button>
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-center">
+          <div className="bg-red-500/10 p-4 rounded-full mb-4">
+              <AlertCircle size={40} className="text-red-500" />
+          </div>
+          <h2 className="text-xl font-bold text-white mb-2">Content Unavailable</h2>
+          <p className="text-gray-400 mb-6 max-w-xs">{error}</p>
+          <button onClick={() => window.location.reload()} className="px-6 py-2 bg-white text-black font-bold rounded-full">Refresh Page</button>
       </div>
   );
 
-
-  // --- 4. MAIN UI ---
-
   return (
-    <div className="min-h-screen bg-black pb-20 text-white font-sans selection:bg-red-500/30">
+    <div className="min-h-screen bg-[#050505] text-white font-sans selection:bg-red-600/30 overflow-x-hidden">
       
-      {/* Dynamic Background */}
-      <div className="fixed inset-0 z-0 pointer-events-none">
-          <img src={data?.poster} className="w-full h-full object-cover opacity-[0.15] blur-3xl scale-110" alt="" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/80 to-transparent"></div>
+      {/* 1. HERO BACKGROUND (Premium Blur) */}
+      <div className="fixed inset-0 z-0">
+          <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/90 to-transparent z-10"></div>
+          <img src={data?.poster} className="w-full h-full object-cover opacity-30 blur-2xl scale-110" alt="Background" />
       </div>
 
-      <div className="relative z-10 container mx-auto px-4 pt-6 md:pt-10">
+      <div className="relative z-20 max-w-7xl mx-auto px-4 sm:px-6 py-6 md:py-12">
         
-        {/* =================================
-           VIEW 1: MOVIE / SERIES INFO
-           ================================= */}
+        {/* === VIEW 1: DETAILS === */}
         {view === "info" && (
-            <div className="animate-in fade-in slide-in-from-bottom-8 duration-700">
-                {/* Back Button */}
-                <button onClick={() => router.push('/')} className="mb-8 flex items-center gap-2 text-gray-400 hover:text-white transition group">
-                    <div className="p-2 bg-white/5 rounded-full group-hover:bg-white/10">
-                        <ChevronLeft size={20} />
-                    </div>
-                    <span className="font-medium">Back to Home</span>
-                </button>
+            <div className="animate-in fade-in slide-in-from-bottom-10 duration-700">
+                {/* Navbar Placeholder */}
+                <div className="flex items-center justify-between mb-8">
+                    <button onClick={() => router.push('/')} className="flex items-center gap-2 text-gray-300 hover:text-white transition group">
+                        <div className="p-2 bg-white/10 rounded-full group-hover:bg-white/20 backdrop-blur-md">
+                            <ChevronLeft size={20} />
+                        </div>
+                    </button>
+                    <div className="text-red-600 font-black tracking-tighter text-xl">NETVLYX</div>
+                </div>
 
-                <div className="flex flex-col md:flex-row gap-10 items-center md:items-start max-w-5xl mx-auto">
-                    {/* Poster */}
-                    <div className="shrink-0 relative group">
-                        <div className="absolute -inset-1 bg-gradient-to-tr from-red-600 to-purple-600 rounded-2xl blur opacity-25 group-hover:opacity-50 transition duration-1000"></div>
-                        <img 
-                            src={data?.poster} 
-                            className="relative w-72 md:w-80 rounded-2xl shadow-2xl border border-white/10" 
-                            alt={data?.title} 
-                        />
+                <div className="flex flex-col md:flex-row gap-8 md:gap-12 items-start">
+                    {/* Poster Card */}
+                    <div className="w-full md:w-[300px] shrink-0 mx-auto">
+                        <div className="relative aspect-[2/3] rounded-2xl overflow-hidden shadow-[0_0_40px_-10px_rgba(255,255,255,0.1)] border border-white/10 group">
+                            <img src={data?.poster} className="w-full h-full object-cover" alt={data?.title} />
+                            <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors"></div>
+                        </div>
                     </div>
 
-                    {/* Details */}
-                    <div className="space-y-6 text-center md:text-left w-full">
-                        <h1 className="text-4xl md:text-6xl font-black leading-tight tracking-tight bg-gradient-to-br from-white to-gray-400 bg-clip-text text-transparent">
-                            {data?.title}
-                        </h1>
-                        
-                        <div className="flex flex-wrap justify-center md:justify-start gap-3">
-                            <span className="bg-white/5 border border-white/10 px-4 py-1.5 rounded-full text-sm font-medium flex items-center gap-2 text-gray-300">
-                                <Calendar size={14} className="text-red-500"/> 2025
-                            </span>
-                            <span className="bg-white/5 border border-white/10 px-4 py-1.5 rounded-full text-sm font-medium flex items-center gap-2 text-gray-300">
-                                {data?.isSeries ? <Tv size={14} className="text-purple-500"/> : <Film size={14} className="text-blue-500"/>}
-                                {data?.isSeries ? "Web Series" : "Movie"}
-                            </span>
+                    {/* Content Info */}
+                    <div className="flex-1 text-center md:text-left space-y-6">
+                        <div>
+                             <h1 className="text-4xl md:text-6xl font-black text-white leading-[1.1] mb-4 drop-shadow-lg">
+                                {data?.title}
+                             </h1>
+                             
+                             {/* Meta Badges */}
+                             <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 text-sm font-medium text-gray-300">
+                                 <span className="flex items-center gap-1.5 bg-white/10 px-3 py-1 rounded-md backdrop-blur-md border border-white/5">
+                                     <Star size={14} className="text-yellow-400" fill="currentColor" /> 9.8
+                                 </span>
+                                 <span className="bg-white/10 px-3 py-1 rounded-md backdrop-blur-md border border-white/5">
+                                     2025
+                                 </span>
+                                 <span className="bg-red-600/20 text-red-400 border border-red-600/30 px-3 py-1 rounded-md uppercase tracking-wider text-xs font-bold">
+                                     {data?.isSeries ? "Series" : "Movie"}
+                                 </span>
+                                 <span className="bg-white/10 px-3 py-1 rounded-md backdrop-blur-md border border-white/5 flex items-center gap-1.5">
+                                     <Clock size={14} /> 2h 45m
+                                 </span>
+                             </div>
                         </div>
 
-                        <p className="text-gray-400 leading-relaxed text-base md:text-lg line-clamp-5 max-w-3xl mx-auto md:mx-0">
+                        {/* Description */}
+                        <p className="text-gray-400 text-lg leading-relaxed line-clamp-4 md:line-clamp-none max-w-3xl">
                             {data?.description}
                         </p>
 
-                        <div className="flex flex-col sm:flex-row gap-4 pt-6 justify-center md:justify-start">
-                             <button 
-                                onClick={onMainDownloadClick} 
-                                className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white px-8 py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-3 transition-all shadow-lg shadow-red-900/40 active:scale-95"
-                             >
-                                <Download size={22} />
-                                {data?.isSeries ? "Download Options" : "Download Movie"}
-                             </button>
-                             
-                             <button className="bg-white/5 border border-white/10 hover:bg-white/10 text-white px-8 py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-3 transition-all backdrop-blur-md">
-                                <Play size={22} fill="currentColor" /> Watch Trailer
-                             </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        )}
-
-        {/* =================================
-           VIEW 2: MODE SELECTION (SERIES)
-           ================================= */}
-        {view === "mode_select" && (
-            <div className="max-w-md mx-auto animate-in zoom-in-95 duration-500 pt-10">
-                <button onClick={() => setView("info")} className="mb-8 text-gray-400 flex items-center gap-2 hover:text-white transition">
-                    <ChevronLeft /> Back to details
-                </button>
-                
-                <h2 className="text-3xl font-bold text-center mb-2">Choose Type</h2>
-                <p className="text-center text-gray-500 mb-10">How would you like to download?</p>
-
-                <div className="space-y-4">
-                    <button 
-                        onClick={() => selectMode("episode")} 
-                        className="w-full bg-slate-900/50 border border-slate-700 hover:border-green-500/50 hover:bg-slate-800 p-6 rounded-2xl flex items-center gap-6 transition-all group"
-                    >
-                        <div className="p-4 bg-green-500/10 rounded-full text-green-500 group-hover:scale-110 transition-transform">
-                            <PlayCircle size={32} />
-                        </div>
-                        <div className="text-left">
-                            <h3 className="font-bold text-xl text-white group-hover:text-green-400 transition-colors">Episode-wise</h3>
-                            <p className="text-sm text-gray-500">Download individual episodes</p>
-                        </div>
-                    </button>
-
-                    <button 
-                        onClick={() => selectMode("batch")} 
-                        className="w-full bg-slate-900/50 border border-slate-700 hover:border-purple-500/50 hover:bg-slate-800 p-6 rounded-2xl flex items-center gap-6 transition-all group"
-                    >
-                        <div className="p-4 bg-purple-500/10 rounded-full text-purple-500 group-hover:scale-110 transition-transform">
-                            <PackageCheck size={32} />
-                        </div>
-                        <div className="text-left">
-                            <h3 className="font-bold text-xl text-white group-hover:text-purple-400 transition-colors">Bulk Download</h3>
-                            <p className="text-sm text-gray-500">Download complete season (Zip)</p>
-                        </div>
-                    </button>
-                </div>
-            </div>
-        )}
-
-        {/* =================================
-           VIEW 3: QUALITY SELECTION
-           ================================= */}
-        {view === "quality_select" && (
-            <div className="max-w-lg mx-auto animate-in slide-in-from-right-8 duration-500 pt-10">
-                <button 
-                    onClick={() => data.isSeries ? setView("mode_select") : setView("info")} 
-                    className="mb-8 flex items-center gap-2 text-gray-400 hover:text-white transition"
-                >
-                    <ChevronLeft /> Back
-                </button>
-
-                <div className="text-center mb-8">
-                    <h2 className="text-2xl font-bold text-white">Select Quality</h2>
-                    <div className={`inline-block px-3 py-1 rounded-full text-xs font-medium mt-2 border ${downloadMode === 'batch' ? 'bg-purple-500/10 border-purple-500/30 text-purple-400' : 'bg-blue-500/10 border-blue-500/30 text-blue-400'}`}>
-                        {downloadMode === 'batch' ? 'ZIP / Batch Files' : 'Single Video Files'}
-                    </div>
-                </div>
-
-                <div className="space-y-3">
-                    {/* Filter and Map Links */}
-                    {(downloadMode === "episode" ? data.episodeLinks : data.batchLinks).map((item: any, i: number) => (
-                        <button
-                            key={i}
-                            onClick={() => proceedToLink(item)}
-                            className="w-full bg-gray-900/80 border border-gray-800 hover:border-gray-600 p-4 rounded-xl flex items-center justify-between group transition-all active:scale-[0.98]"
-                        >
-                            <div className="flex items-center gap-4">
-                                <div className={`p-3 rounded-full ${downloadMode === 'batch' ? 'bg-purple-500/10 text-purple-400' : 'bg-blue-500/10 text-blue-400'}`}>
-                                    {downloadMode === 'batch' ? <PackageCheck size={20} /> : <Download size={20} />}
-                                </div>
-                                <div className="text-left">
-                                    <div className="font-bold text-white text-lg flex items-center gap-2">
-                                        {item.res} 
-                                        {item.isHEVC && <span className="text-[10px] bg-red-600 px-1.5 py-0.5 rounded text-white tracking-wider">HEVC</span>}
-                                    </div>
-                                    <div className="text-xs text-gray-500 truncate max-w-[180px]">
-                                        {downloadMode === 'episode' ? "High Speed Server" : "Contains all episodes"}
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="bg-gray-800 text-gray-300 px-3 py-1.5 rounded-lg text-xs font-mono group-hover:bg-gray-700 transition-colors border border-gray-700">
-                                {item.size}
-                            </div>
-                        </button>
-                    ))}
-
-                    {/* Empty State */}
-                    {(downloadMode === "episode" ? data.episodeLinks : data.batchLinks).length === 0 && (
-                        <div className="text-center p-10 bg-gray-900/50 rounded-2xl border border-gray-800 border-dashed">
-                            <p className="text-gray-400">No links found for this mode.</p>
-                            <button onClick={() => setView("mode_select")} className="text-blue-400 text-sm mt-2 hover:underline">
-                                Try changing download type
+                        {/* Main Buttons */}
+                        <div className="flex flex-col sm:flex-row gap-4 pt-4 justify-center md:justify-start">
+                            <button 
+                                onClick={onMainDownloadClick}
+                                className="bg-white text-black px-8 py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-3 hover:bg-gray-200 transition-colors shadow-[0_0_20px_-5px_rgba(255,255,255,0.4)]"
+                            >
+                                <Download size={24} fill="currentColor" />
+                                <span>Download</span>
+                            </button>
+                            
+                            <button className="bg-white/10 border border-white/10 text-white px-8 py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-3 hover:bg-white/20 transition-colors backdrop-blur-md">
+                                <Play size={24} fill="currentColor" />
+                                <span>Trailer</span>
                             </button>
                         </div>
-                    )}
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* === VIEW 2: MODE SELECTION (SERIES) === */}
+        {view === "mode_select" && (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] animate-in zoom-in-95 duration-500">
+                <div className="w-full max-w-md">
+                    <button onClick={() => setView("info")} className="mb-6 text-gray-400 flex items-center gap-2 hover:text-white transition">
+                        <ChevronLeft /> Back
+                    </button>
+                    
+                    <h2 className="text-3xl font-bold text-white mb-2">Download Type</h2>
+                    <p className="text-gray-500 mb-8">Choose your preferred download method</p>
+
+                    <div className="grid gap-4">
+                        <button 
+                            onClick={() => selectMode("episode")} 
+                            className="bg-gray-900/60 border border-gray-700 hover:border-green-500 hover:bg-gray-900 p-5 rounded-2xl flex items-center gap-5 transition-all group backdrop-blur-md"
+                        >
+                            <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center text-green-500 group-hover:scale-110 transition-transform">
+                                <PlayCircle size={24} fill="currentColor" />
+                            </div>
+                            <div className="text-left">
+                                <h3 className="font-bold text-lg text-white">Episode-wise</h3>
+                                <p className="text-sm text-gray-500">Download single episodes</p>
+                            </div>
+                        </button>
+
+                        <button 
+                            onClick={() => selectMode("batch")} 
+                            className="bg-gray-900/60 border border-gray-700 hover:border-purple-500 hover:bg-gray-900 p-5 rounded-2xl flex items-center gap-5 transition-all group backdrop-blur-md"
+                        >
+                            <div className="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-500 group-hover:scale-110 transition-transform">
+                                <PackageCheck size={24} />
+                            </div>
+                            <div className="text-left">
+                                <h3 className="font-bold text-lg text-white">Bulk Download</h3>
+                                <p className="text-sm text-gray-500">Full season zip file</p>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* === VIEW 3: QUALITY LIST === */}
+        {view === "quality_select" && (
+            <div className="flex flex-col items-center min-h-[60vh] animate-in slide-in-from-right-10 duration-500 pt-10">
+                <div className="w-full max-w-lg">
+                    <button 
+                        onClick={() => data.isSeries ? setView("mode_select") : setView("info")} 
+                        className="mb-8 flex items-center gap-2 text-gray-400 hover:text-white transition"
+                    >
+                        <ChevronLeft /> Back
+                    </button>
+
+                    <div className="flex items-center justify-between mb-6">
+                        <h2 className="text-2xl font-bold text-white">Select Quality</h2>
+                        <span className="text-xs bg-white/10 px-3 py-1 rounded-full text-gray-400 border border-white/5">
+                            {downloadMode === 'batch' ? 'ZIP File' : 'MKV File'}
+                        </span>
+                    </div>
+
+                    <div className="space-y-3">
+                        {(downloadMode === "episode" ? data.episodeLinks : data.batchLinks).map((item: any, i: number) => (
+                            <button
+                                key={i}
+                                onClick={() => proceedToLink(item)}
+                                className="w-full bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 p-4 rounded-xl flex items-center justify-between group transition-all backdrop-blur-md"
+                            >
+                                <div className="flex items-center gap-4">
+                                    <div className="w-10 h-10 rounded-full bg-blue-600/20 flex items-center justify-center text-blue-500">
+                                        {downloadMode === 'batch' ? <PackageCheck size={20} /> : <Download size={20} />}
+                                    </div>
+                                    <div className="text-left">
+                                        <div className="font-bold text-white text-lg flex items-center gap-2">
+                                            {item.res} 
+                                            {item.isHEVC && <span className="text-[10px] bg-gradient-to-r from-red-600 to-orange-600 px-1.5 py-0.5 rounded text-white shadow-lg">HEVC</span>}
+                                        </div>
+                                        <div className="text-xs text-gray-400">
+                                            {downloadMode === 'episode' ? "High Speed Server" : "Complete Season"}
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div className="flex items-center gap-3">
+                                    <span className="text-xs font-mono text-gray-400 bg-black/40 px-2 py-1 rounded border border-white/5">
+                                        {item.size}
+                                    </span>
+                                    <ChevronLeft className="rotate-180 text-gray-600 group-hover:text-white transition-colors" size={20} />
+                                </div>
+                            </button>
+                        ))}
+
+                        {(downloadMode === "episode" ? data.episodeLinks : data.batchLinks).length === 0 && (
+                            <div className="p-8 text-center bg-white/5 rounded-xl border border-dashed border-gray-700">
+                                <p className="text-gray-400">No links found for this category.</p>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         )}
@@ -371,4 +330,4 @@ export default function MoviePage() {
       </div>
     </div>
   );
-    }
+}
