@@ -3,40 +3,47 @@
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { fetchProxy, decodeBase64, parseHTML, encodeBase64 } from "@/lib/utils";
-import { PlayCircle, CloudLightning, ChevronLeft, Calendar } from "lucide-react";
+import { CloudLightning, ChevronLeft, Calendar, AlertCircle } from "lucide-react";
 
 function EpisodesContent() {
   const params = useSearchParams();
   const router = useRouter();
+  
+  // --- STATE ---
   const [episodes, setEpisodes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState("Season Episodes");
+  const [qualityLabel, setQualityLabel] = useState(""); // ✅ Yeh State Zaroori Hai
 
   useEffect(() => {
     const fetchEpisodes = async () => {
       const key = params.get("key");
       const quality = params.get("quality") || "";
+      
+      // ✅ Local 'quality' variable ko State mein save kar rahe hain
+      setQualityLabel(decodeURIComponent(quality));
+
       if (!key) return;
 
       try {
-        const { link } = JSON.parse(decodeBase64(key)); // m4ulinks URL
+        const decoded = JSON.parse(decodeBase64(key));
+        const link = decoded.link; 
+        
         const html = await fetchProxy(link);
         if (!html) throw new Error("Failed to fetch episodes");
 
         const doc = parseHTML(html);
         
-        // Scraping Logic for Episodes
-        // Structure: <h5>-:Episodes: 1:-</h5> <div class="downloads-btns-div">...</div>
-        const episodeList: any[] = [];
-        const headers = doc.querySelectorAll(".download-links-div h5");
-        
-        // Title nikal lo agar mil jaye
+        // Page Title Cleaning
         const pageTitle = doc.querySelector("h1")?.textContent?.replace("Always Use Official Website", "").trim();
         if(pageTitle) setTitle(pageTitle);
 
+        // Episode List Extraction
+        const episodeList: any[] = [];
+        const headers = doc.querySelectorAll(".download-links-div h5");
+
         headers.forEach((h5) => {
             const epText = h5.textContent || "";
-            // Extract Episode Number: "-:Episodes: 1:-" -> "1"
             const epNum = epText.match(/\d+/)?.[0] || "?";
             
             const btnDiv = h5.nextElementSibling;
@@ -47,7 +54,7 @@ function EpisodesContent() {
                 anchors.forEach(a => {
                     const href = a.getAttribute("href");
                     if (href?.includes("hubcloud")) {
-                        links.push({ name: "Hub-Cloud", url: href, type: "ncloud" });
+                        links.push({ name: "Hub-Cloud", url: href });
                     }
                 });
 
@@ -66,6 +73,7 @@ function EpisodesContent() {
 
       } catch (error) {
         console.error(error);
+        setLoading(false);
       }
     };
 
@@ -73,7 +81,6 @@ function EpisodesContent() {
   }, [params]);
 
   const handleEpisodeClick = (url: string) => {
-      // Send to N-Cloud page
       const payload = encodeBase64(JSON.stringify({ url, title: "Download Episode" }));
       router.push(`/ncloud?key=${payload}&action=download`);
   };
@@ -83,57 +90,59 @@ function EpisodesContent() {
        
        {/* Header */}
        <div className="max-w-2xl mx-auto pt-6 mb-8">
-           <button onClick={() => router.back()} className="text-gray-400 flex items-center gap-2 mb-4 hover:text-white">
+           <button onClick={() => router.back()} className="text-gray-400 flex items-center gap-2 mb-4 hover:text-white transition">
                <ChevronLeft /> Back
            </button>
-           <h1 className="text-2xl font-bold">{title}</h1>
-           <p className="text-gray-500 text-sm mt-1">{quality}</p>
+           <h1 className="text-xl md:text-2xl font-bold leading-tight">{title}</h1>
+           
+           {/* ✅ FIXED: Yahan 'quality' ki jagah 'qualityLabel' use kiya hai */}
+           <p className="text-gray-500 text-sm mt-1">{qualityLabel || "High Quality"}</p>
        </div>
 
        {/* Episodes Grid */}
        <div className="max-w-2xl mx-auto space-y-4">
            {loading ? (
                [1,2,3,4].map(i => (
-                   <div key={i} className="h-40 bg-gray-900 rounded-2xl animate-pulse"></div>
+                   <div key={i} className="h-32 bg-gray-900 rounded-2xl animate-pulse border border-gray-800"></div>
                ))
+           ) : episodes.length === 0 ? (
+               <div className="text-center py-10 bg-gray-900 rounded-xl border border-red-900/30">
+                   <AlertCircle className="mx-auto text-red-500 mb-2" />
+                   <p className="text-gray-400">No episodes found. Try a different quality.</p>
+               </div>
            ) : (
                episodes.map((ep, i) => (
-                   <div key={i} className="bg-gray-900 border border-gray-800 rounded-2xl p-4 md:p-6 flex flex-col gap-4">
+                   <div key={i} className="bg-gray-900/60 border border-gray-800 rounded-2xl p-4 flex flex-col sm:flex-row gap-4 hover:border-gray-700 transition-colors">
                        
-                       {/* Episode Info */}
-                       <div className="flex gap-4">
-                           <div className="relative w-32 h-20 bg-gray-800 rounded-lg overflow-hidden shrink-0">
-                               {/* Placeholder Image since we don't have per-episode images */}
-                               <div className="absolute inset-0 flex items-center justify-center bg-blue-900/20 text-blue-500 font-bold text-xl">
-                                   E{ep.epNum}
-                               </div>
-                           </div>
-                           <div>
-                               <span className="bg-blue-600/20 text-blue-400 text-xs px-2 py-1 rounded-md font-bold mb-2 inline-block">
-                                   Episode {ep.epNum}
-                               </span>
-                               <h3 className="font-bold text-lg leading-tight">Season 1</h3>
-                               <p className="text-gray-500 text-xs mt-1 flex items-center gap-2">
-                                   <Calendar size={12} /> {new Date().getFullYear()}
-                               </p>
+                       <div className="relative w-full sm:w-32 h-20 bg-gray-800 rounded-lg overflow-hidden shrink-0 flex items-center justify-center border border-white/5">
+                           <div className="text-2xl font-black text-gray-700 select-none">
+                               {ep.epNum}
                            </div>
                        </div>
 
-                       {/* Action Button */}
-                       {ep.links.map((link: any, idx: number) => (
-                           <button 
-                                key={idx}
-                                onClick={() => handleEpisodeClick(link.url)}
-                                className="w-full bg-gradient-to-r from-amber-500 to-orange-600 text-black font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:scale-[1.02] transition-transform shadow-lg shadow-orange-500/20"
-                           >
-                               <CloudLightning size={20} />
-                               Get Episode (Cloud)
-                           </button>
-                       ))}
-                       
-                       <p className="text-center text-xs text-gray-500">
-                           {ep.links.length > 1 ? `+ ${ep.links.length - 1} more servers` : "Fastest Server Selected"}
-                       </p>
+                       <div className="flex-1">
+                           <div className="flex justify-between items-start mb-3">
+                               <div>
+                                   <h3 className="font-bold text-white text-lg">Episode {ep.epNum}</h3>
+                                   <p className="text-gray-500 text-xs flex items-center gap-1">
+                                       <Calendar size={10} /> Season 1
+                                   </p>
+                               </div>
+                           </div>
+
+                           <div className="grid gap-2">
+                               {ep.links.map((link: any, idx: number) => (
+                                   <button 
+                                        key={idx}
+                                        onClick={() => handleEpisodeClick(link.url)}
+                                        className="w-full bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition-all active:scale-95 border border-slate-700"
+                                   >
+                                       <CloudLightning size={16} className="text-yellow-500" />
+                                       <span>Download Episode</span>
+                                   </button>
+                               ))}
+                           </div>
+                       </div>
                    </div>
                ))
            )}
@@ -144,8 +153,8 @@ function EpisodesContent() {
 
 export default function Episodes() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-black flex items-center justify-center">Loading Episodes...</div>}>
+    <Suspense fallback={<div className="min-h-screen bg-black flex items-center justify-center text-gray-500">Loading Episodes...</div>}>
       <EpisodesContent />
     </Suspense>
   );
-             }
+            }
