@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { fetchProxy, decodeBase64, parseHTML } from "@/lib/utils";
-import { Download, Bug, CheckCircle2, Server } from "lucide-react";
+import { Download, Bug, CheckCircle2, ChevronLeft } from "lucide-react";
 
-export default function NCloud() {
+function NCloudContent() {
   const params = useSearchParams();
   const [servers, setServers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -19,7 +19,7 @@ export default function NCloud() {
       try {
         const { url } = JSON.parse(decodeBase64(key));
 
-        // --- HOP 1: HubCloud ---
+        // HOP 1: HubCloud
         setStepMsg("Bypassing HubCloud security...");
         const html1 = await fetchProxy(url);
         if (!html1) throw new Error("HubCloud timeout");
@@ -29,7 +29,7 @@ export default function NCloud() {
 
         if (!gamerLink) throw new Error("Direct link not found in HubCloud");
 
-        // --- HOP 2: GamerXYT ---
+        // HOP 2: GamerXYT
         setStepMsg("Resolving final file servers...");
         const html2 = await fetchProxy(gamerLink);
         if (!html2) throw new Error("GamerXYT timeout");
@@ -43,7 +43,6 @@ export default function NCloud() {
             const href = a.getAttribute("href");
             if (!href || href.startsWith("#") || href.startsWith("javascript")) return;
 
-            // Filtering specific servers based on your screenshots
             if (txt.includes("fslv2")) {
                 finalLinks.push({ name: "FSLv2 Server", url: href, bg: "bg-blue-500/10", border: "border-blue-500/50", iconBg: "bg-blue-500/20", iconColor: "text-blue-400" });
             } else if (txt.includes("fsl")) {
@@ -65,7 +64,7 @@ export default function NCloud() {
     };
 
     doubleHop();
-  }, []);
+  }, [params]);
 
   return (
     <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4 relative overflow-hidden">
@@ -143,5 +142,10 @@ export default function NCloud() {
   );
 }
 
-// Icon helper needed for this file
-import { ChevronLeft } from "lucide-react";
+export default function NCloud() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-black text-white flex items-center justify-center">Loading...</div>}>
+      <NCloudContent />
+    </Suspense>
+  );
+}
