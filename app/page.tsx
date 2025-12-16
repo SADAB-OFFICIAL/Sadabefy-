@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchProxy, parseHTML, encodeBase64, SOURCE_DOMAIN } from "@/lib/utils";
+// ✅ FIXED: Added ChevronLeft to imports
 import { 
   Play, 
   Info, 
@@ -10,7 +11,7 @@ import {
   Film, 
   MessageCircle, 
   Star, 
-  ChevronRight,
+  ChevronLeft, 
   MonitorPlay
 } from "lucide-react";
 
@@ -259,4 +260,4 @@ function MovieRow({ title, movies, loading }: { title: string, movies: Movie[], 
             </div>
         </div>
     );
-                                          }
+                }
