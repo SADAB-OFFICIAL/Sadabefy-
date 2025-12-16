@@ -13,14 +13,15 @@ function EpisodesContent() {
   const [episodes, setEpisodes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState("Season Episodes");
-  const [qualityLabel, setQualityLabel] = useState(""); // ✅ Fixed: Added State for quality
+  const [qualityLabel, setQualityLabel] = useState(""); // ✅ State for storing quality
 
   useEffect(() => {
     const fetchEpisodes = async () => {
       const key = params.get("key");
       const quality = params.get("quality") || "";
       
-      setQualityLabel(decodeURIComponent(quality)); // ✅ Fixed: Saving quality to state
+      // ✅ Store quality in state so it can be used in HTML
+      setQualityLabel(decodeURIComponent(quality)); 
 
       if (!key) return;
 
@@ -98,6 +99,8 @@ function EpisodesContent() {
                <ChevronLeft /> Back
            </button>
            <h1 className="text-xl md:text-2xl font-bold leading-tight">{title}</h1>
+           
+           {/* ✅ FIXED LINE: Using qualityLabel instead of quality */}
            <div className="inline-block bg-blue-900/30 text-blue-400 text-xs px-2 py-1 rounded border border-blue-500/30 mt-2">
                {qualityLabel || "High Quality"}
            </div>
